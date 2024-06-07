@@ -8,6 +8,7 @@
     "start": "node index.js",
     "import": "node ./scripts/import.js",
     "sync": "node ./scripts/sync.js",
+    "sync_incremental": "node ./scripts/sync_incremental.js",
     "resync": "node ./scripts/resync.js",
     "torrent-import": "node ./scripts/torrent.js",
     "torrent-sync": "node ./scripts/torrentsync.js",
