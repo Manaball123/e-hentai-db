@@ -182,91 +182,94 @@ class Sync {
 		return new Promise(resolve => setTimeout(resolve, time * 1000));
 	}
 
-	async runIteration() {
+	async run() {
 		const { connection } = this;
 
 		connection.connect(async (err) => {
-			if (err) {
-				console.error(err.stack);
-				return;
-			}
+			while(!this.isFinished) {
+				console.log("starting new iteration")
 
-			await this.query('SET NAMES UTF8MB4');
-			let lastPosted = await this.getLastPosted();
-			let lastId = await this.getLastId()
-			connection.destroy();
-			console.log(`got last posted = ${lastPosted}`);
-			console.log(`got last id = ${lastId}`);
-			if (this.offset) {
-				lastPosted += this.offset * 3600;
-				console.log(`offset last posted = ${lastPosted}`);
-			}
 			
-			let start = this.idIncrement + lastId
-			const list = [];
-
-			const getPages = async (expunged, startId) => {
-				let page = 0;
-				let finish = false;
-				let next = startId.toString();
-
-				while (!finish) {
-					await this.sleep(1);
-					console.log(`requesting ${expunged ? 'expunged' : 'default'} page ${page}...`);
-					console.log(next)
-					const curList = await this.retryResolver(() => this.getPages(next, expunged), this.retryTimes);
-					console.log(`got ${curList[0][0]} to ${curList.slice(-1)[0][0]}`);
-					curList.forEach(e => {
-						if (new Date(`${e[2].split(' ').join('T')}Z`).getTime() > lastPosted * 1000) {
-							list.push(e);
-						}
-						else {
-							finish = true;
-						}
-					});
-					page++;
-					next = curList.slice(-1)[0][0];
+				if (err) {
+					console.error(err.stack);
+					break;
 				}
-			};
 
-			await getPages(false, start);
-			await getPages(true, start);
-			list.sort((a, b) => a[0] - b[0]);
+				await this.query('SET NAMES UTF8MB4');
+				let lastPosted = await this.getLastPosted();
+				let lastId = await this.getLastId()
+				
+				console.log(`got last posted = ${lastPosted}`);
+				console.log(`got last id = ${lastId}`);
+				if (this.offset) {
+					lastPosted += this.offset * 3600;
+					console.log(`offset last posted = ${lastPosted}`);
+				}
+				
+				let start = this.idIncrement + lastId
+				const list = [];
 
-			if (!list.length) {
-				console.log('no new gallery available');
-				this.isFinished = true;
-				return;
+				const getPages = async (expunged, startId) => {
+					let page = 0;
+					let finish = false;
+					let next = startId.toString();
+
+					while (!finish) {
+						await this.sleep(1);
+						console.log(`requesting ${expunged ? 'expunged' : 'default'} page ${page}...`);
+						console.log(next)
+						const curList = await this.retryResolver(() => this.getPages(next, expunged), this.retryTimes);
+						console.log(`got ${curList[0][0]} to ${curList.slice(-1)[0][0]}`);
+						curList.forEach(e => {
+							if (new Date(`${e[2].split(' ').join('T')}Z`).getTime() > lastPosted * 1000) {
+								list.push(e);
+							}
+							else {
+								finish = true;
+							}
+						});
+						page++;
+						next = curList.slice(-1)[0][0];
+					}
+				};
+
+				await getPages(false, start);
+				await getPages(true, start);
+				list.sort((a, b) => a[0] - b[0]);
+
+				if (!list.length) {
+					console.log('no new gallery available');
+					this.isFinished = true;
+					break;
+				}
+				console.log(`got ${list.length} new galleries of ${list[0][0]} to ${list.slice(-1)[0][0]}`);
+
+				let result = {};
+				while (list.length) {
+					await this.sleep(1);
+					const curList = list.splice(0, 25);
+					console.log(`requesting metadata of ${curList[0][0]} to ${curList.slice(-1)[0][0]} (${curList.length})...`);
+					const metadatas = await this.retryResolver(() => this.getMetadatas(curList), this.retryTimes);
+					metadatas.forEach(e => result[e.gid] = e);
+				}
+
+				const path = `gdata/gdata-${Date.now()}.json`;
+				fs.writeFileSync(path, JSON.stringify(result), 'utf8');
+				console.log(`result is writted to ${path}, calling import script...`);
+
+				const importProcess = childProcess.spawn('node', ['./scripts/import.js', path, this.offset ? '-f' : ''].filter(e => e));
+				importProcess.stdout.on('data', (data) => {
+					process.stdout.write(data.toString());
+				});
+				importProcess.stderr.on('data', (data) => {
+					process.stderr.write(data.toString());
+				});
+				importProcess.on('close', (code) => {
+					console.log(`import script is exited with code ${code}`);
+				});
 			}
-			console.log(`got ${list.length} new galleries of ${list[0][0]} to ${list.slice(-1)[0][0]}`);
-
-			let result = {};
-			while (list.length) {
-				await this.sleep(1);
-				const curList = list.splice(0, 25);
-				console.log(`requesting metadata of ${curList[0][0]} to ${curList.slice(-1)[0][0]} (${curList.length})...`);
-				const metadatas = await this.retryResolver(() => this.getMetadatas(curList), this.retryTimes);
-				metadatas.forEach(e => result[e.gid] = e);
-			}
-
-			const path = `gdata/gdata-${Date.now()}.json`;
-			fs.writeFileSync(path, JSON.stringify(result), 'utf8');
-			console.log(`result is writted to ${path}, calling import script...`);
-
-			const importProcess = childProcess.spawn('node', ['./scripts/import.js', path, this.offset ? '-f' : ''].filter(e => e));
-			importProcess.stdout.on('data', (data) => {
-				process.stdout.write(data.toString());
-			});
-			importProcess.stderr.on('data', (data) => {
-				process.stderr.write(data.toString());
-			});
-			importProcess.on('close', (code) => {
-				console.log(`import script is exited with code ${code}`);
-			});
+			connection.destroy();
 		});
-	}
-	async run() {
-		await this.runIteration();
 	}
 }
 
