@@ -6,3 +6,4 @@ gdata.json
 dist/
 .cookies
 .proxies
+/gdata
