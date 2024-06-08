@@ -188,7 +188,7 @@ class Sync {
 
 		connection.connect(async (err) => {
 			while(!this.isFinished) {
-				console.log("starting new iteration")
+				console.log("\n\n\nstarting new iteration")
 
 			
 				if (err) {
@@ -253,7 +253,7 @@ class Sync {
 					const metadatas = await this.retryResolver(() => this.getMetadatas(curList), this.retryTimes);
 					metadatas.forEach(e => result[e.gid] = e);
 				}
-
+				let import_complete = false;
 				const path = `gdata/gdata-${Date.now()}.json`;
 				fs.writeFileSync(path, JSON.stringify(result), 'utf8');
 				console.log(`result is writted to ${path}, calling import script...`);
@@ -267,9 +267,13 @@ class Sync {
 				});
 				importProcess.on('close', (code) => {
 					console.log(`import script is exited with code ${code}`);
+					import_complete = true;
 				});
 				//wait until import finishes
-				await this.sleep(5);
+				while(!import_complete){
+					await this.sleep(0.1);
+				}
+				
 			}
 			connection.destroy();
 		});
