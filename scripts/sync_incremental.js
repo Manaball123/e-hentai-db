@@ -269,7 +269,7 @@ class Sync {
 					console.log(`import script is exited with code ${code}`);
 				});
 				//wait until import finishes
-				this.sleep(5);
+				await this.sleep(5);
 			}
 			connection.destroy();
 		});
